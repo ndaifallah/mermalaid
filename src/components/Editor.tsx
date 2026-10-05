@@ -1,260 +1,324 @@
-import { useState, useEffect, useRef } from 'react'
-import EditorComponent, { loader } from '@monaco-editor/react'
-import { useTheme } from '../hooks/useTheme'
-import { isAppThemeDark } from '../utils/mermaidThemes'
-import { MERMLAID_EDITOR_AUTOSAVE_DEBOUNCE_MS } from '../constants/mermalaidTiming'
-import type { MermaidBlock } from '../utils/mermaidCodeBlock'
-import './Editor.css'
+import { useState, useEffect, useRef } from "react";
+import EditorComponent, { loader } from "@monaco-editor/react";
+import { initVimMode } from "monaco-vim";
+import { useTheme } from "../hooks/useTheme";
+import { isAppThemeDark } from "../utils/mermaidThemes";
+import { MERMLAID_EDITOR_AUTOSAVE_DEBOUNCE_MS } from "../constants/mermalaidTiming";
+import type { MermaidBlock } from "../utils/mermaidCodeBlock";
+import "./Editor.css";
 
 // Register Mermaid language
 loader.init().then((monaco) => {
-  monaco.languages.register({ id: 'mermaid' })
-  
-  monaco.languages.setMonarchTokensProvider('mermaid', {
+  monaco.languages.register({ id: "mermaid" });
+
+  monaco.languages.setMonarchTokensProvider("mermaid", {
     tokenizer: {
       root: [
         // Diagram type keywords
-        [/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitgraph|journey|requirement)/i, 'keyword'],
-        
+        [
+          /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitgraph|journey|requirement)/i,
+          "keyword",
+        ],
+
         // Direction keywords
-        [/[TDLR][DB]/, 'keyword'],
-        [/LR|RL|TD|BT/, 'keyword'],
-        
+        [/[TDLR][DB]/, "keyword"],
+        [/LR|RL|TD|BT/, "keyword"],
+
         // Node shapes
-        [/\[[^\]]*\]/, 'string'],
-        [/\([^)]*\)/, 'string'],
-        [/\{[^}]*\}/, 'string'],
-        [/[<>]/, 'delimiter'],
-        
+        [/\[[^\]]*\]/, "string"],
+        [/\([^)]*\)/, "string"],
+        [/\{[^}]*\}/, "string"],
+        [/[<>]/, "delimiter"],
+
         // Styling
-        [/classDef|style|linkStyle/, 'keyword'],
-        
+        [/classDef|style|linkStyle/, "keyword"],
+
         // Arrows
-        [/[-.]+>/g, 'operator'],
-        [/[-><]+|==[>=]|--/, 'operator'],
-        
+        [/[-.]+>/g, "operator"],
+        [/[-><]+|==[>=]|--/, "operator"],
+
         // Comments
-        [/%%.*$/, 'comment'],
-        
+        [/%%.*$/, "comment"],
+
         // Identifiers
-        [/[a-zA-Z0-9_]+/, 'identifier'],
-        
+        [/[a-zA-Z0-9_]+/, "identifier"],
+
         // Strings in quotes
-        [/"[^"]*"/, 'string'],
-        [/('[^']*')/, 'string'],
-        
+        [/"[^"]*"/, "string"],
+        [/('[^']*')/, "string"],
+
         // Numbers
-        [/\d+/, 'number'],
-        
+        [/\d+/, "number"],
+
         // Special characters
-        [/[{}[\]]/, 'delimiter.bracket'],
-      ]
-    }
-  })
-  
-  monaco.languages.setLanguageConfiguration('mermaid', {
+        [/[{}[\]]/, "delimiter.bracket"],
+      ],
+    },
+  });
+
+  monaco.languages.setLanguageConfiguration("mermaid", {
     comments: {
-      lineComment: '%%'
+      lineComment: "%%",
     },
     brackets: [
-      ['[', ']'],
-      ['(', ')'],
-      ['{', '}']
+      ["[", "]"],
+      ["(", ")"],
+      ["{", "}"],
     ],
     autoClosingPairs: [
-      { open: '[', close: ']' },
-      { open: '(', close: ')' },
-      { open: '{', close: '}' },
+      { open: "[", close: "]" },
+      { open: "(", close: ")" },
+      { open: "{", close: "}" },
       { open: '"', close: '"' },
-      { open: "'", close: "'" }
+      { open: "'", close: "'" },
     ],
     surroundingPairs: [
-      { open: '[', close: ']' },
-      { open: '(', close: ')' },
-      { open: '{', close: '}' },
+      { open: "[", close: "]" },
+      { open: "(", close: ")" },
+      { open: "{", close: "}" },
       { open: '"', close: '"' },
-      { open: "'", close: "'" }
-    ]
-  })
-})
+      { open: "'", close: "'" },
+    ],
+  });
+});
 
 interface EditorProps {
-  code: string
-  setCode: (code: string) => void
-  error: string | null
-  mermaidBlocks: MermaidBlock[]
-  selectedBlockIndex: number
-  setSelectedBlockIndex: (index: number) => void
-  isCollapsed: boolean
-  onToggleCollapsed: () => void
-  isMobile?: boolean
+  code: string;
+  setCode: (code: string) => void;
+  error: string | null;
+  mermaidBlocks: MermaidBlock[];
+  selectedBlockIndex: number;
+  setSelectedBlockIndex: (index: number) => void;
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
+  isMobile?: boolean;
   /** Desktop split-view width in px (GitHub #91). Ignored on mobile and while collapsed. */
-  width?: number
+  width?: number;
 }
 
 function CollapseEditorIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M7.25 10L5.5 12L7.25 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M9.5 21V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.25 10L5.5 12L7.25 14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.5 21V3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
-  )
+  );
 }
 
 function ExpandEditorIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M9.5 21V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5.5 10L7.25 12L5.5 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.5 21V3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5.5 10L7.25 12L5.5 14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
-  )
+  );
 }
 
 export default function Editor({
-  code, setCode, error,
-  mermaidBlocks, selectedBlockIndex, setSelectedBlockIndex,
-  isCollapsed, onToggleCollapsed,
+  code,
+  setCode,
+  error,
+  mermaidBlocks,
+  selectedBlockIndex,
+  setSelectedBlockIndex,
+  isCollapsed,
+  onToggleCollapsed,
   isMobile = false,
   width,
 }: EditorProps) {
-  const { mermaidTheme } = useTheme()
-  const debounceTimer = useRef<NodeJS.Timeout>()
-  const editorRef = useRef<any>(null)
-  const decorationIdsRef = useRef<string[]>([])
+  const { mermaidTheme } = useTheme();
+  const debounceTimer = useRef<NodeJS.Timeout>();
+  const editorRef = useRef<any>(null);
+  const decorationIdsRef = useRef<string[]>([]);
   /** Avoid scrolling on every keystroke: reveal block start only when selection or block list shape changes (issue #54). */
-  const lastBlockRevealRef = useRef<{ selectedBlockIndex: number; blockCount: number } | null>(null)
-  const [editorReady, setEditorReady] = useState(false)
+  const lastBlockRevealRef = useRef<{ selectedBlockIndex: number; blockCount: number } | null>(
+    null,
+  );
+  const [editorReady, setEditorReady] = useState(false);
+
+  /** Get vim refs */
+  const vimModeRef = useRef<any>(null);
+  const statusBarRef = useRef<HTMLDivElement>(null);
+
+  // Make sure to clean up things
+  useEffect(() => {
+    return () => {
+      if (vimModeRef.current) {
+        vimModeRef.current.dispose(); //
+      }
+    };
+  }, []);
 
   const readClipboardText = (clipboardData: DataTransfer | null): string => {
-    if (!clipboardData) return ''
+    if (!clipboardData) return "";
 
-    const plainTextTypes = ['text/plain', 'text', 'Text']
+    const plainTextTypes = ["text/plain", "text", "Text"];
     for (const type of plainTextTypes) {
-      const value = clipboardData.getData(type)
-      if (value) return value
+      const value = clipboardData.getData(type);
+      if (value) return value;
     }
 
-    const html = clipboardData.getData('text/html')
-    if (!html) return ''
+    const html = clipboardData.getData("text/html");
+    if (!html) return "";
 
-    const doc = new DOMParser().parseFromString(html, 'text/html')
-    const preformatted = doc.querySelector('pre, code')?.textContent
-    const content = preformatted ?? doc.body?.textContent ?? ''
-    return content.replace(/\u00a0/g, ' ')
-  }
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const preformatted = doc.querySelector("pre, code")?.textContent;
+    const content = preformatted ?? doc.body?.textContent ?? "";
+    return content.replace(/\u00a0/g, " ");
+  };
 
   // Update Monaco editor when code changes externally (e.g., from AI Fix)
   useEffect(() => {
     if (editorRef.current) {
-      const currentValue = editorRef.current.getValue()
+      const currentValue = editorRef.current.getValue();
       if (currentValue !== code) {
-        editorRef.current.setValue(code)
+        editorRef.current.setValue(code);
       }
     }
-  }, [code])
+  }, [code]);
 
   useEffect(() => {
     if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
+      clearTimeout(debounceTimer.current);
     }
     debounceTimer.current = setTimeout(() => {
-      localStorage.setItem('mermalaid-draft', code)
-    }, MERMLAID_EDITOR_AUTOSAVE_DEBOUNCE_MS)
+      localStorage.setItem("mermalaid-draft", code);
+    }, MERMLAID_EDITOR_AUTOSAVE_DEBOUNCE_MS);
     return () => {
       if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current)
+        clearTimeout(debounceTimer.current);
       }
-    }
-  }, [code])
+    };
+  }, [code]);
 
   const handleEditorDidMount = (editor: any) => {
-    editorRef.current = editor
-    setEditorReady(true)
-  }
+    editorRef.current = editor;
+    // Initialize Vim mode with the editor instance and status bar container
+    if (statusBarRef.current) {
+      vimModeRef.current = initVimMode(editor, statusBarRef.current); //
+    }
+    setEditorReady(true);
+  };
 
   // Set up paste handler once editor is mounted
   useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
+    const editor = editorRef.current;
+    if (!editor) return;
 
     const handlePaste = (e: ClipboardEvent) => {
       try {
-        const pastedText = readClipboardText(e.clipboardData ?? null)
-        if (!pastedText) return
+        const pastedText = readClipboardText(e.clipboardData ?? null);
+        if (!pastedText) return;
 
-        const normalizedText = pastedText.replace(/\r\n/g, '\n')
+        const normalizedText = pastedText.replace(/\r\n/g, "\n");
 
         // Only unwrap if the entire pasted text is a single ```mermaid code block
-        const singleBlockRegex = /^```mermaid\s*\n([\s\S]*?)\n```\s*$/i
-        const match = normalizedText.trim().match(singleBlockRegex)
+        const singleBlockRegex = /^```mermaid\s*\n([\s\S]*?)\n```\s*$/i;
+        const match = normalizedText.trim().match(singleBlockRegex);
 
         if (match && match[1]) {
-          e.preventDefault()
-          e.stopPropagation()
-          const extracted = match[1].trim()
-          editor.setValue(extracted)
-          setCode(extracted)
-          return
+          e.preventDefault();
+          e.stopPropagation();
+          const extracted = match[1].trim();
+          editor.setValue(extracted);
+          setCode(extracted);
+          return;
         }
 
-        const hasPlainText = ['text/plain', 'text', 'Text'].some(
-          (type) => Boolean(e.clipboardData?.getData(type)),
-        )
+        const hasPlainText = ["text/plain", "text", "Text"].some((type) =>
+          Boolean(e.clipboardData?.getData(type)),
+        );
 
         // Firefox + native WebView can expose only HTML clipboard payloads.
         // In that case Monaco may not paste anything by default, so insert text manually.
         if (!hasPlainText) {
-          e.preventDefault()
-          const selection = editor.getSelection()
+          e.preventDefault();
+          const selection = editor.getSelection();
           if (selection) {
-            editor.executeEdits('clipboard-fallback', [
+            editor.executeEdits("clipboard-fallback", [
               {
                 range: selection,
                 text: normalizedText,
                 forceMoveMarkers: true,
               },
-            ])
-            setCode(editor.getValue())
+            ]);
+            setCode(editor.getValue());
           }
         }
       } catch (err) {
-        console.error('Error handling paste:', err)
+        console.error("Error handling paste:", err);
       }
-    }
+    };
 
-    const editorContainer = editor.getContainerDomNode()
+    const editorContainer = editor.getContainerDomNode();
     if (editorContainer) {
-      editorContainer.addEventListener('paste', handlePaste, true)
+      editorContainer.addEventListener("paste", handlePaste, true);
       return () => {
-        editorContainer.removeEventListener('paste', handlePaste, true)
-      }
+        editorContainer.removeEventListener("paste", handlePaste, true);
+      };
     }
-  }, [setCode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply decorations to highlight the selected mermaid block
   useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
+    const editor = editorRef.current;
+    if (!editor) return;
 
-    const model = editor.getModel()
-    if (!model) return
+    const model = editor.getModel();
+    if (!model) return;
 
     if (mermaidBlocks.length <= 1) {
-      decorationIdsRef.current = editor.deltaDecorations(decorationIdsRef.current, [])
-      lastBlockRevealRef.current = null
-      return
+      decorationIdsRef.current = editor.deltaDecorations(decorationIdsRef.current, []);
+      lastBlockRevealRef.current = null;
+      return;
     }
 
-    const block = mermaidBlocks[selectedBlockIndex]
+    const block = mermaidBlocks[selectedBlockIndex];
     if (!block) {
-      decorationIdsRef.current = editor.deltaDecorations(decorationIdsRef.current, [])
-      return
+      decorationIdsRef.current = editor.deltaDecorations(decorationIdsRef.current, []);
+      return;
     }
 
-    const startPos = model.getPositionAt(block.start)
-    const endPos = model.getPositionAt(block.end)
+    const startPos = model.getPositionAt(block.start);
+    const endPos = model.getPositionAt(block.end);
 
     decorationIdsRef.current = editor.deltaDecorations(decorationIdsRef.current, [
       {
@@ -266,63 +330,61 @@ export default function Editor({
         },
         options: {
           isWholeLine: true,
-          className: 'mermaid-block-highlight',
-          glyphMarginClassName: 'mermaid-block-gutter',
+          className: "mermaid-block-highlight",
+          glyphMarginClassName: "mermaid-block-gutter",
         },
       },
-    ])
+    ]);
 
-    const blockCount = mermaidBlocks.length
-    const prevReveal = lastBlockRevealRef.current
+    const blockCount = mermaidBlocks.length;
+    const prevReveal = lastBlockRevealRef.current;
     const shouldRevealBlockStart =
       prevReveal === null ||
       prevReveal.selectedBlockIndex !== selectedBlockIndex ||
-      prevReveal.blockCount !== blockCount
+      prevReveal.blockCount !== blockCount;
 
     if (shouldRevealBlockStart) {
-      editor.revealLineInCenterIfOutsideViewport(startPos.lineNumber)
-      lastBlockRevealRef.current = { selectedBlockIndex, blockCount }
+      editor.revealLineInCenterIfOutsideViewport(startPos.lineNumber);
+      lastBlockRevealRef.current = { selectedBlockIndex, blockCount };
     }
-  }, [mermaidBlocks, selectedBlockIndex, code, editorReady])
+  }, [mermaidBlocks, selectedBlockIndex, code, editorReady]);
 
   // Listen for cursor position changes to switch selected block
   useEffect(() => {
-    const editor = editorRef.current
-    if (!editor || mermaidBlocks.length <= 1) return
+    const editor = editorRef.current;
+    if (!editor || mermaidBlocks.length <= 1) return;
 
     const disposable = editor.onDidChangeCursorPosition(
       (e: { position: { lineNumber: number; column: number }; reason?: number }) => {
-        if (e.reason === 1) return
+        if (e.reason === 1) return;
 
-        const model = editor.getModel()
-        if (!model) return
+        const model = editor.getModel();
+        if (!model) return;
 
-        const offset = model.getOffsetAt(e.position)
+        const offset = model.getOffsetAt(e.position);
 
         for (let i = 0; i < mermaidBlocks.length; i++) {
           if (offset >= mermaidBlocks[i].start && offset <= mermaidBlocks[i].end) {
             if (i !== selectedBlockIndex) {
-              setSelectedBlockIndex(i)
+              setSelectedBlockIndex(i);
             }
-            return
+            return;
           }
         }
-      }
-    )
+      },
+    );
 
-    return () => disposable.dispose()
-  }, [mermaidBlocks, selectedBlockIndex, setSelectedBlockIndex, editorReady])
+    return () => disposable.dispose();
+  }, [mermaidBlocks, selectedBlockIndex, setSelectedBlockIndex, editorReady]);
 
   // Fixed basis drives the resizable split; the preview pane (flex: 1) fills the rest.
   // Collapsed/mobile fall back to their CSS-class layout, so leave the style off then.
   const panelStyle: React.CSSProperties | undefined =
-    !isMobile && !isCollapsed && typeof width === 'number'
-      ? { flex: `0 0 ${width}px` }
-      : undefined
+    !isMobile && !isCollapsed && typeof width === "number" ? { flex: `0 0 ${width}px` } : undefined;
 
   return (
     <div
-      className={`editor-container ${isCollapsed ? 'collapsed' : ''} ${isMobile ? 'editor-container-mobile' : ''}`}
+      className={`editor-container ${isCollapsed ? "collapsed" : ""} ${isMobile ? "editor-container-mobile" : ""}`}
       style={panelStyle}
     >
       <div className="editor-header">
@@ -334,8 +396,8 @@ export default function Editor({
               type="button"
               className="editor-toggle-btn"
               onClick={onToggleCollapsed}
-              title={isCollapsed ? 'Expand editor' : 'Collapse editor'}
-              aria-label={isCollapsed ? 'Expand editor panel' : 'Collapse editor panel'}
+              title={isCollapsed ? "Expand editor" : "Collapse editor"}
+              aria-label={isCollapsed ? "Expand editor panel" : "Collapse editor panel"}
             >
               {isCollapsed ? <ExpandEditorIcon /> : <CollapseEditorIcon />}
             </button>
@@ -352,33 +414,40 @@ export default function Editor({
               onChange={(value) => {
                 // Monaco can report `undefined` during mount/layout churn; ignore that so
                 // switching into the mobile Code panel does not wipe the current diagram.
-                if (typeof value === 'string') {
-                  setCode(value)
+                if (typeof value === "string") {
+                  setCode(value);
                 }
               }}
               onMount={handleEditorDidMount}
-              theme={isAppThemeDark(mermaidTheme) ? 'vs-dark' : 'vs'}
+              theme={isAppThemeDark(mermaidTheme) ? "vs-dark" : "vs"}
               options={{
                 minimap: { enabled: false },
                 fontSize: isMobile ? 16 : 14,
                 tabSize: 2,
-                wordWrap: 'on',
+                wordWrap: "on",
                 automaticLayout: true,
                 glyphMargin: !isMobile && mermaidBlocks.length > 1,
-                lineNumbers: isMobile ? 'off' : 'on',
+                lineNumbers: isMobile ? "off" : "on",
                 folding: !isMobile,
                 scrollBeyondLastLine: false,
               }}
             />
           </div>
-          {error && (
-            <div className="error-message">
-              {error}
-            </div>
-          )}
+          <div
+            ref={statusBarRef}
+            className="vim-status-bar"
+            style={{
+              padding: "4px 10px",
+              background: "#1e1e1e",
+              color: "#ffffff",
+              fontFamily: "monospace",
+              fontSize: "12px",
+              borderTop: "1px solid #333",
+            }}
+          />
+          {error && <div className="error-message">{error}</div>}
         </>
       )}
     </div>
-  )
+  );
 }
-
