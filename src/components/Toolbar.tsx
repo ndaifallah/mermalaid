@@ -1084,6 +1084,13 @@ ${svgs.map((svg, i) => `<div class="diagram"><h2>Diagram ${i + 1}</h2>${svg}</di
                 Agent
               </button>
             )}
+            <button
+              onClick={() => {
+
+              }}
+              className='toolbar-btn' title='Toggle vim mode'>
+              V
+            </button>
             <button onClick={() => setShowSettings(true)} className="toolbar-btn" title="Settings">
               ⚙️
             </button>
